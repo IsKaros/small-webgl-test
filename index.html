@@ -112,7 +112,7 @@ gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 0.0);
 <script>
 var OFFSCREEN_WIDTH = 1024, OFFSCREEN_HEIGHT = 1024;
 
-//F//Assign variables to shader
+//Assign variables to shader
 function assignShader(gl,shader) {
 return function(tp,variable,shader_variable) {
 gl.useProgram(shader);
@@ -128,7 +128,7 @@ tp == 'm4'?gl.uniformMatrix4fv(this.loc,false,this.variable):0;
 };
 }
 
-//F//Create program
+//Create program
 function createProgram(gl,vshader,fshader){
     var VSHADER_SOURCE = document.getElementById(vshader).text;
     var FSHADER_SOURCE = document.getElementById(fshader).text;
@@ -149,7 +149,7 @@ function createProgram(gl,vshader,fshader){
     return shaderProgram;
 }
 
-//F//Frame buffer init
+//Frame buffer init
 function initFrameBuffer(gl) {
     framebuffer = gl.createFramebuffer();
     texture = gl.createTexture();
@@ -171,7 +171,7 @@ function initFrameBuffer(gl) {
     return framebuffer;
 }
 
-//F//Draw cube
+//Draw cube
 function drawCube(gl,shader,drawcheck,center,length,width,height,color) {
         var vertices = new Float32Array([
           // Front face
