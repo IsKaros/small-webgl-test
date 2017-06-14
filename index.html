@@ -1,0 +1,406 @@
+
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+#mycanvas
+{
+border:1px solid red;
+}
+</style>
+<script src="./cuon-matrix.js"></script>
+</head>
+<body onload="we()">
+<canvas id="mycanvas" width="600" height="600">Do not support webgl,please use Chrome or Firefox</canvas>
+<br>
+Cube x:<input id="slider1" type="range" min="0.2" max="1.5" step="0.05" oninput="we()"/>
+<br>
+Cube y:<input id="slider2" type="range" min="0.2" max="1.0" step="0.05" oninput="we()"/>
+<br>
+Light x:<input id="slider3" type="range" min="2.5" max="3.5" step="0.05" oninput="we()"/>
+<br>
+Light y:<input id="slider4" type="range" min="2.5" max="3.5" step="0.05" oninput="we()"/>
+<br>
+Light z:<input id="slider5" type="range" min="2.8" max="4.5" step="0.05" oninput="we()"/>
+<br>
+
+<script id="vshader" type="notjs">
+precision mediump float;
+attribute vec4 a_Position;
+attribute vec4 a_Color;
+attribute vec4 a_Normal;
+uniform vec3 u_LightColor;
+uniform vec3 u_LightDirection;
+uniform vec3 u_AmbientLight;
+uniform vec3 u_LightPosition;
+uniform mat4 u_MvpMatrix;
+uniform mat4 u_MvpMatrixFromLight;
+varying vec3 v_Normal;
+varying vec3 v_Position;
+varying vec4 v_Color;
+varying vec4 v_PositionFromLight;
+void main() {
+gl_Position = u_MvpMatrix * a_Position;
+v_PositionFromLight = u_MvpMatrixFromLight * a_Position;
+v_Position = vec3(a_Position);
+vec3 normal = normalize(vec3(a_Normal));
+v_Normal = normal;
+gl_PointSize = 10.0;
+v_Color = a_Color;
+}
+</script>
+
+<script id="fshader" type="notjs">
+precision mediump float;
+uniform vec3 u_LightColor;
+uniform vec3 u_LightPosition;
+uniform vec3 u_AmbientLight;
+uniform sampler2D u_ShadowMap;
+varying vec3 v_Normal;
+varying vec3 v_Position;
+varying vec4 v_Color;
+varying vec4 v_PositionFromLight;
+uniform int dtype;
+float random (vec2 co) {
+    return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
+}
+void main() {
+vec3 normal = normalize(v_Normal);
+vec3 lightDirection = normalize(u_LightPosition - v_Position);
+vec3 shadowCoord =(v_PositionFromLight.xyz/v_PositionFromLight.w)/2.0 + 0.5;
+vec4 rgbaDepth = vec4(0.0, 0.0, 0.0, 0.0);
+vec2 texelSize = vec2 (1.5 / 1024.0,1.5 / 1024.0);
+float visibility = 0.0;
+//sampling around
+for(int x = -2; x <= 2; ++x)
+{
+    for(int y = -2; y <= 2; ++y)
+    {   vec2 sampleCoord = shadowCoord.xy + vec2(x, y) * texelSize;
+        if(sampleCoord.x < 0.0 || sampleCoord.y < 0.0 || sampleCoord.x > 1.0 || sampleCoord.y > 1.0) {rgbaDepth = vec4(1.0, 0.0, 0.0, 0.0);} else {rgbaDepth = texture2D(u_ShadowMap, sampleCoord)+ 0.005;};
+        float depth = rgbaDepth.r;
+        visibility += (shadowCoord.z > depth ) ? 0.5:1.0;
+    }
+}
+visibility /= 25.0;
+if(visibility>0.301&&visibility<=1.0) {visibility += random (shadowCoord.xy)/10.0;};
+float nDotL = max(dot( lightDirection, normal), 0.0);
+vec3 diffuse = u_LightColor * v_Color.rgb * nDotL;
+vec3 ambient = u_AmbientLight * v_Color.rgb;
+//gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);
+//gl_FragColor = vec4(shadowCoord.x, 0.0, 0.0, 1.0);
+gl_FragColor = vec4((diffuse) * visibility + ambient, v_Color.a);
+}
+</script>
+
+<script id="svshader" type="notjs">
+precision mediump float;
+attribute vec4 a_Position;
+uniform mat4 u_MvpMatrix;
+void main() {
+gl_Position = u_MvpMatrix * a_Position;
+}
+</script>
+
+<script id="sfshader" type="notjs">
+precision mediump float;
+uniform int dtype;
+void main() {
+gl_FragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 0.0);
+}
+</script>
+
+<script>
+var OFFSCREEN_WIDTH = 1024, OFFSCREEN_HEIGHT = 1024;
+
+//F//Assign variables to shader
+function assignShader(gl,shader) {
+return function(tp,variable,shader_variable) {
+gl.useProgram(shader);
+this.loc = gl.getUniformLocation(shader, shader_variable);
+this.variable = variable;
+tp == 'v1'?gl.uniform1fv(this.loc,this.variable):0;
+tp == 'v2'?gl.uniform2fv(this.loc,this.variable):0;
+tp == 'v3'?gl.uniform3fv(this.loc,this.variable):0;
+tp == 'v4'?gl.uniform4fv(this.loc,this.variable):0;
+tp == 'm2'?gl.uniformMatrix2fv(this.loc,false,this.variable):0;
+tp == 'm3'?gl.uniformMatrix3fv(this.loc,false,this.variable):0;
+tp == 'm4'?gl.uniformMatrix4fv(this.loc,false,this.variable):0;
+};
+}
+
+//F//Create program
+function createProgram(gl,vshader,fshader){
+    var VSHADER_SOURCE = document.getElementById(vshader).text;
+    var FSHADER_SOURCE = document.getElementById(fshader).text;
+    var vertShader = gl.createShader(gl.VERTEX_SHADER);
+    gl.shaderSource(vertShader,VSHADER_SOURCE);
+    gl.compileShader(vertShader);
+    //console.log(gl.getShaderParameter(vertShader, gl.COMPILE_STATUS));
+    var fragShader = gl.createShader(gl.FRAGMENT_SHADER);
+    gl.shaderSource(fragShader,FSHADER_SOURCE);
+    gl.compileShader(fragShader);
+    //console.log(gl.getShaderParameter(fragShader, gl.COMPILE_STATUS));
+    //console.log(gl.getShaderInfoLog(vertShader));
+    //console.log(gl.getShaderInfoLog(fragShader));
+    var shaderProgram = gl.createProgram();
+    gl.attachShader(shaderProgram,vertShader);
+    gl.attachShader(shaderProgram,fragShader);
+    gl.linkProgram(shaderProgram);
+    return shaderProgram;
+}
+
+//F//Frame buffer init
+function initFrameBuffer(gl) {
+    framebuffer = gl.createFramebuffer();
+    texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, OFFSCREEN_WIDTH,OFFSCREEN_HEIGHT, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    framebuffer.texture = texture;
+    depthBuffer = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16,OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D, texture, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER, depthBuffer);
+    var e = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (e !== gl.FRAMEBUFFER_COMPLETE) {
+    console.log('Framebuffer object is incomplete: ' + e.toString());
+    return error();
+    }
+    return framebuffer;
+}
+
+//F//Draw cube
+function drawCube(gl,shader,drawcheck,center,length,width,height,color) {
+        var vertices = new Float32Array([
+          // Front face
+          center[0]-length/2, center[1],  center[2] + width/2,
+           center[0]+length/2, center[1],  center[2] + width/2,
+           center[0]+length/2,  center[1]+height,  center[2] + width/2,
+          center[0]-length/2,  center[1]+height,  center[2] + width/2,
+
+          // Back face
+          center[0]-length/2, center[1], center[2] - width/2,
+          center[0]-length/2,  center[1]+height, center[2] - width/2,
+           center[0]+length/2,  center[1]+height, center[2] - width/2,
+           center[0]+length/2, center[1], center[2] - width/2,
+
+          // Top face
+          center[0]-length/2,  center[1]+height, center[2] - width/2,
+          center[0]-length/2,  center[1]+height,  center[2] + width/2,
+           center[0]+length/2,  center[1]+height,  center[2] + width/2,
+           center[0]+length/2,  center[1]+height, center[2] - width/2,
+
+          // Bottom face
+          center[0]-length/2, center[1], center[2] - width/2,
+           center[0]+length/2, center[1], center[2] - width/2,
+           center[0]+length/2, center[1],  center[2] + width/2,
+          center[0]-length/2, center[1],  center[2] + width/2,
+
+          // Right face
+           center[0]+length/2, center[1], center[2] - width/2,
+           center[0]+length/2,  center[1]+height, center[2] - width/2,
+           center[0]+length/2,  center[1]+height,  center[2] + width/2,
+           center[0]+length/2, center[1],  center[2] + width/2,
+
+          // Left face
+          center[0]-length/2, center[1], center[2] - width/2,
+          center[0]-length/2, center[1],  center[2] + width/2,
+          center[0]-length/2,  center[1]+height,  center[2] + width/2,
+          center[0]-length/2,  center[1]+height, center[2] - width/2,
+
+        ]);
+        var colors = new Float32Array([
+          // Front face
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+
+          // Back face
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+
+          // Top face
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+
+          // Bottom face
+          color[0],  color[1],  color[2],
+           color[0],  color[1],  color[2],
+           color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+
+          // Right face
+           color[0],  color[1],  color[2],
+           color[0],  color[1],  color[2],
+           color[0],  color[1],  color[2],
+           color[0],  color[1],  color[2],
+
+          // Left face
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+          color[0],  color[1],  color[2],
+
+        ]);
+        var normals = new Float32Array([
+          // Front face
+           0.0, 0.0,  1.0,
+           0.0, 0.0,  1.0,
+           0.0, 0.0,  1.0,
+           0.0, 0.0,  1.0,
+
+          // Back face
+           0.0, 0.0, -1.0,
+           0.0, 0.0, -1.0,
+           0.0, 0.0, -1.0,
+           0.0, 0.0, -1.0,
+
+          // Top face
+          0.0,  1.0, 0.0,
+          0.0,  1.0, 0.0,
+          0.0,  1.0, 0.0,
+          0.0,  1.0, 0.0,
+
+          // Bottom face
+          0.0, -1.0, 0.0,
+          0.0, -1.0, 0.0,
+          0.0, -1.0, 0.0,
+          0.0, -1.0, 0.0,
+
+          // Right face
+           1.0, 0.0, 0.0,
+           1.0, 0.0, 0.0,
+           1.0, 0.0, 0.0,
+           1.0, 0.0, 0.0,
+
+          // Left face
+          -1.0, 0.0, 0.0,
+          -1.0, 0.0, 0.0,
+          -1.0, 0.0, 0.0,
+          -1.0, 0.0, 0.0,
+        ]);
+
+        var indices = new Uint8Array([
+          0,  1,  2,      0,  2,  3,    // front
+          4,  5,  6,      4,  6,  7,    // back
+          8,  9,  10,     8,  10, 11,   // top
+          12, 13, 14,     12, 14, 15,   // bottom
+          16, 17, 18,     16, 18, 19,   // right
+          20, 21, 22,     20, 22, 23,    // left
+        ]);
+        gl.useProgram(shader);
+        var vertexBuffer = gl.createBuffer();
+        var colorBuffer = gl.createBuffer();
+        var normalBuffer = gl.createBuffer();
+        var indexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER,vertices,gl.STATIC_DRAW);
+        var a_Position = gl.getAttribLocation(shader,'a_Position');
+        gl.vertexAttribPointer(a_Position,3,gl.FLOAT,false,0,0);
+        gl.enableVertexAttribArray(a_Position);
+        if(drawcheck == 1) {
+        gl.bindBuffer(gl.ARRAY_BUFFER,colorBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER,colors,gl.STATIC_DRAW);
+        var a_Color = gl.getAttribLocation(shader,'a_Color');
+        gl.vertexAttribPointer(a_Color,3,gl.FLOAT,false,0,0);
+        gl.enableVertexAttribArray(a_Color);
+        gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER,normals,gl.STATIC_DRAW);
+        var a_Normal = gl.getAttribLocation(shader,'a_Normal');
+        gl.vertexAttribPointer(a_Normal,3,gl.FLOAT,false,0,0);
+        gl.enableVertexAttribArray(a_Normal);
+        };
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,indexBuffer);
+        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,indices,gl.STATIC_DRAW);
+        var n = indices.length;
+        gl.drawElements(gl.TRIANGLES,n,gl.UNSIGNED_BYTE,0);
+        //return indices.length;
+};
+    //canvas and gl init
+    var canvas = document.getElementById('mycanvas');
+    var gl = canvas.getContext('webgl');
+
+    //create shaderprogram
+    shadowProgram = createProgram(gl,'svshader','sfshader');
+    normalProgram = createProgram(gl,'vshader','fshader');
+    fbo = initFrameBuffer(gl);
+
+function we() {
+ss = null;
+ss = main();
+}
+
+function main() {
+
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, fbo.texture);
+
+    //set clear color to pure red and clear
+    gl.clearColor(1.0,0.0,0.0,0.0);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+
+    //set gl parameter
+    gl.enable(gl.DEPTH_TEST);
+
+    //get html slider variables
+    var cubeX = Number(document.getElementById("slider1").value);
+    var cubeY = Number(document.getElementById("slider2").value);
+    var lightX = Number(document.getElementById("slider3").value);
+    var lightY = Number(document.getElementById("slider4").value);
+    var lightZ = Number(document.getElementById("slider5").value);
+
+    //define variables
+    var mvpMatrix = new Matrix4();
+    mvpMatrix.setPerspective(50, 1, 1, 100);
+    mvpMatrix.lookAt(2, 2, 6, 0, 0, 0, 0, 1, 0);
+    //mvpMatrix.lookAt(0, 15, 0, 0, 0, 0, 0, 0, -1);
+    var mvpMatrixLight = new Matrix4();
+    mvpMatrixLight.setPerspective(70, 1, 1, 100);
+    mvpMatrixLight.lookAt(lightX, lightY, lightZ, 0, 0, 0, 0, 1, 0);
+    var lightDirection = new Vector3([0.5, 3.0, 4.0]);
+    lightDirection.normalize();
+
+    var assign1 = assignShader(gl,shadowProgram);
+    var assign2 = assignShader(gl,normalProgram);
+    assign1('m4',mvpMatrixLight.elements,'u_MvpMatrix');
+    assign2('v3',[lightX, lightY, lightZ],'u_LightPosition');
+    assign2('v3',[1.0, 1.0, 1.0],'u_LightColor');
+    assign2('v3',[0.14, 0.14, 0.14],'u_AmbientLight');
+    assign2('m4',mvpMatrix.elements,'u_MvpMatrix');
+    assign2('m4',mvpMatrixLight.elements,'u_MvpMatrixFromLight');
+
+
+    //draw shadow map
+    //gl.cullFace(gl.FRONT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    gl.viewport(0, 0, OFFSCREEN_WIDTH, OFFSCREEN_HEIGHT);
+    drawCube(gl,shadowProgram,0,[0.0,-1.0,0.0],2.0,2.0,2.0,[0.5,0.5,0.8]);
+    drawCube(gl,shadowProgram,0,[cubeX,cubeY,1.0],1.0,1.0,1.0,[0.8,0.5,0.5]);
+    drawCube(gl,shadowProgram,0,[0.0,-1.2,0.0],10.0,10.0,0.2,[0.5,0.5,0.5]);
+    //gl.cullFace(gl.BACK);
+
+    //draw normal
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0.5,0.5,0.5,1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    gl.uniform1i(normalProgram.u_ShadowMap, 0);
+    drawCube(gl,normalProgram,1,[0.0,-1.0,0.0],2.0,2.0,2.0,[0.5,0.5,0.8]);
+    drawCube(gl,normalProgram,1,[cubeX,cubeY,1.0],1.0,1.0,1.0,[0.8,0.5,0.5]);
+    drawCube(gl,normalProgram,1,[0.0,-1.2,0.0],10.0,10.0,0.2,[0.5,0.5,0.5]);
+
+
+}
+</script>
+
+
+</body>
+</html>
